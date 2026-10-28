@@ -1,65 +1,84 @@
-import express from "express"; 
+import express from "express";
 
 const app = express();
-const transacoesValidas = []
-app.get ('/', (req , res) => {
-  
-})
+const transacoesValidas = [];
 
-app.use(express.json()); 
-app.post('/transacao', (req, res) => {
-  const { valor, dataHora } = req.body;
+app.use(express.json());
 
-  if (valor == undefined || dataHora == undefined) {
-    res.status(400).end();
-  } else {
-    if (valor < 0 || new Date(dataHora) > new Date()) {
-      res.status(422).end();
-    }
-    else {
-      transacoesValidas.push({ valor, dataHora });
-      res.status(201).end();
-    }
+app.post("/transacao", (req, res) => {
+  const { valor, dataHora } = req.body ?? {};
+
+  // Campos obrigatórios e tipos válidos
+  if (
+    valor === undefined ||
+    typeof valor !== "number" ||
+    !Number.isFinite(valor) ||
+    typeof dataHora !== "string" ||
+    dataHora.trim() === ""
+  ) {
+    return res.status(422).end();
   }
-});
-    
-app.get('/estatistica', (req, res) => {
-  const transacoesRecentes = transacoesValidas.filter((item) => {
-    return new Date().getTime() - new Date(item.dataHora).getTime() <= 60000;
+
+  const data = new Date(dataHora);
+  const timestamp = data.getTime();
+
+  // Data inválida ou transação no futuro
+  if (
+    !Number.isFinite(timestamp) ||
+    timestamp > Date.now() ||
+    valor < 0
+  ) {
+    return res.status(422).end();
+  }
+
+  transacoesValidas.push({
+    valor,
+    dataHora: data.toISOString()
   });
 
-  const count = transacoesRecentes.length;
+  return res.status(201).end();
+});
 
-  let sum;
-  let avg;
-  let min;
-  let max;
+app.delete("/transacao", (req, res) => {
+  transacoesValidas.length = 0;
+  return res.status(200).end();
+});
 
-  if (count === 0) {
-    sum = 0;
-    avg = 0;
-    min = 0;
-    max = 0;
-  } else {
-    sum = transacoesRecentes.reduce((acumulador, itemAtual) => {
-      return acumulador + itemAtual.valor;
-    }, 0);
+app.get("/estatistica", (req, res) => {
+  const agora = Date.now();
 
-    const valores = transacoesRecentes.map((item) => {
-      return item.valor;
-    });
+  const recentes = transacoesValidas.filter((transacao) => {
+    const timestamp = new Date(transacao.dataHora).getTime();
 
-    avg = sum / count;
-    max = Math.max(...valores);
-    min = Math.min(...valores);
+    return timestamp >= agora - 60000 && timestamp <= agora;
+  });
+
+  const valores = recentes.map((transacao) => transacao.valor);
+  const count = valores.length;
+
+  const sum = valores.reduce((total, valor) => total + valor, 0);
+  const avg = count ? sum / count : 0;
+  const min = count ? Math.min(...valores) : 0;
+  const max = count ? Math.max(...valores) : 0;
+
+  return res.status(200).json({
+    count,
+    sum,
+    avg,
+    min,
+    max
+  });
+});
+
+// JSON malformado deve responder 400
+app.use((err, req, res, next) => {
+  if (err instanceof SyntaxError && err.status === 400) {
+    return res.status(400).end();
   }
 
-  res.status(200).json({ count, sum, avg, min, max });
+  return next(err);
 });
 
-app.delete('/transacao', (req, res) => {
-  transacoesValidas.length = 0;
-  res.status(200).end();
+app.listen(3000, () => {
+  console.log("Servidor rodando na porta 3000");
 });
-
-app.listen(3000, () => console.log (`O servidor está rodando na porta 3000`));
